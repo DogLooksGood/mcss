@@ -1,0 +1,20 @@
+{:deps {:aliases [:dev]}
+
+ :builds
+ {:demo {:target     :browser
+         :asset-path "/compiled"
+         :output-dir "example/public/compiled"
+         :modules
+         {:demo {:entries [demo.simple]
+                 :init-fn demo.simple/main}}
+         :devtools
+         {:http-port   4000
+          :http-root   "example/public"
+          :after-load  demo.simple/after-load
+          :loader-mode :eval}
+
+         :dev
+         {:compiler-options {:devcards true}}
+
+         :release
+         {:compiler-options {:infer-externs :auto}}}}}
