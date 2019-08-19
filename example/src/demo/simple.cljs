@@ -1,15 +1,15 @@
 (ns demo.simple
   (:require [reagent.core :as reagent]
-            [mcss.core :refer [defrule defstyled defkeyframes defcustom load-styles!]]
+            [mcss.core :as mcss :refer
+             [defrule defstyled defkeyframes defcustom load-styles!]]
             [goog.string.format]))
-
-(defn rgb [r g b]
-  (goog.string.format "rgb(%d,%d,%d)" r g b))
 
 (defcustom ft ["Consolas" "Input Mono" "DejaVu Sans Mono"])
 (defcustom bd-1 [["thin" "solid" "#99ff99"]])
 (defcustom bd-2 [["5px" "solid" "#9999ff"]])
 (defcustom bd-act [["2px" "solid" "#ff9999"]])
+(defcustom r "8deg")
+(defcustom p80 "80%")
 
 (defrule ".h100"
   {:height "100vh"})
@@ -21,7 +21,7 @@
   {:border-raidus "50%"})
 
 (defrule ".r10"
-  {:transform (rotate "10deg")})
+  {:transform {:rotate r}})
 
 (defrule ".c"
   {:display         "flex"
@@ -29,32 +29,41 @@
    :align-items     "center"})
 
 (defkeyframes ft-pulse
-  [:from {:color "white"}]
-  [:to   {:color "black"}])
+  [:from {:color {:hsl [210 p80 p80]}}]
+  [:to   {:color {:rgb [0 0 0]}}])
 
 (defstyled Root :div.h100.w100
   {:display     "flex"
-   :font-family (cssvar ft)
+   :font-family ft
    :flex-wrap   "wrap"})
 
-(defstyled Grid :div.o.r10.c
-  ^{:media {:medium {:border (cssvar bd-2)}}
-    :pseudo {:hover {:border (cssvar bd-act)
-                     :border-color #(rgb (- 255 (:red %)) 30 30)}}}
-  {:border (cssvar bd-1)
-   :width :width
-   :box-sizing "border-box"
-   :animation [[ft-pulse "2s" "infinite" "alternate"]]
-   :background-color #(rgb (:red %) 128 128)})
+(defstyled Grid :div.o.c.r10
+  ^{:media  {:medium {:border bd-2}}
+    :pseudo {:hover {:border       bd-act
+                     :border-color {:rgb [#(- 255 (:red %)) 30 30]}}}}
+  {:border           bd-1
+   :width            :width
+   :box-sizing       "border-box"
+   :animation        [[ft-pulse "2s" "infinite" "alternate"]]
+   :background-color {:rgb [:red 128 128]}
+   :active? {:font-weight "bold"
+             :font-size "1.5rem"}})
+
+(defn foo [{:keys [active?]}]
+  [:div (str active?)])
 
 (defn root []
-  [Root
-   (for [i (range 255)]
-     ^{:key i}
-     [Grid {:red i
-            :width "3rem"
-            :on-click #(js/alert (str "Click at:" i))}
-      (str i)])])
+  (let [active* (reagent/atom nil)]
+    (fn []
+      (let [idx @active*]
+        [Root
+         (for [i (range 255)]
+           ^{:key i}
+           [Grid {:on-click #(reset! active* i)
+                  :css {:active? (= i idx)
+                        :width "3rem"
+                        :red i}}
+            (str i)])]))))
 
 (defn mount []
   (let [t (.getTime (js/Date.))]

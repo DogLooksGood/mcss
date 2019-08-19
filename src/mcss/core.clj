@@ -1,74 +1,8 @@
 (ns mcss.core
-  "
-  1. Pre-compiled style, fast css injection.
-  2. Seamless dynamic style via css variable.
-
-  Define styled component which we use in hiccup.
-
-  For static style:
-
-  (defstyled my-btn :button
-    {:color \"blue\"})
-
-  Usage:
-  [my-btn]
-
-  Equivalent:
-
-  (inject-style! ...)
-  (def my-btn :button.my-btn)
-
-  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-  For dynamic style:
-
-  (defstyled my-btn :button
-    {:background-color :bg-color
-     :color #(:clr %)})
-
-  Usage:
-  [my-btn {:clr \"red\", :on-click f}]
-
-  Equivalent:
-
-  (inject-style! ...)
-  (defn my-btn [props & children]
-    (into [:button.my-btn (merge props {:style ...})]
-          children))
-  "
   (:require [clojure.string :as str]
+            [mcss.defaults :refer [default-vendors default-media]]
             [cljs.analyzer.api :as aa]))
 
-
-
-;;; Configuration
-
-(def ^:dynamic
-  *vendors*
-  "Default vendors setup, can be configured by `set-vendors!`."
-  {:flex-direction  [:webkit :moz]
-   :flex-grow       [:webkit :moz]
-   :flex-wrap       [:webkit :moz]
-   :justify-content [:webkit :moz]
-   :align-items     [:webkit :moz]
-   :align-content   [:webkit :moz]
-   :transition      [:webkit :moz]
-   :animation       [:webkit :moz]
-   :box-shadow      [:webkit :moz]
-   :box-sizing      [:webkit :moz]
-   :border-radius   [:webkit :moz]
-   :align-self      [:webkit :moz]
-   :overflow-scroll [:webkit :moz]
-   :keyframes       [:webkit :moz :o]})
-
-(def ^:dynamic
-  *media*
-  "Default media query break points, can be configured by `set-media!`."
-  {:not-small "only screen and (min-width:30em)"
-   :medium    "only screen and (min-width:30em) and (max-width:60em)"
-   :large     "only screen and (min-width:60em)"})
-
-
 
 ;;; Errors
 ;;; TODO add more errors
@@ -83,6 +17,12 @@
 
 (defn- no-fallback-error [p]
   (throw (ex-info "No fallback value for property" {:property p})))
+
+(defn- invalid-component-position-error [c]
+  (throw (ex-info "Invalid component here." {:component c})))
+
+(defn- invalid-symbol-error [s]
+  (throw (ex-info "Invalid symbol here." {:symbol s})))
 
 
 
@@ -144,7 +84,23 @@
 
     ;; Refer to a custom valiable or keyframes
     (symbol? v)
-    (->sanitize-symbol-name v opts)
+    (let [{:keys [meta] :as r} (aa/resolve (:env opts) v)
+          #:mcss{:keys [type]} meta]
+      (case type
+        :keyframes
+        (->sanitize-symbol-name v opts)
+
+        :custom
+        (format "var(--%s)" (->sanitize-symbol-name v opts))
+
+        :static-component
+        (invalid-component-position-error v)
+
+        :dynamic-component
+        (invalid-component-position-error v)
+
+        ;; Other symbol will be considered as function.
+        (invalid-symbol-error v)))
 
     ;; Function or symbol(refer to function) used to extract data
     (and (seq? v) (#{'fn 'fn*} (first v)))
@@ -154,10 +110,16 @@
       (swap! vars* conj pair)
       cssvar)
 
-    ;; CSS function call
-    (list? v)
-    (cond (= 'cssvar (first v)) (format "var(--%s)" (->sanitize-symbol-name (second v) opts))
-          :else (format "%s(%s)" (first v) (str/join "," (map name (next v)))))
+    ;; Map will rewrite to a css function call.
+    (map? v)
+    (let [first-v (second (first v))
+          args (if (vector? first-v)
+                 first-v
+                 [first-v])
+          f (ffirst v)]
+      (format "%s(%s)" (name f) (->> args
+                                     (map #(->css-value % vars* opts))
+                                     (str/join ","))))
 
     :else
     (invalid-property-value-error v)))
@@ -189,9 +151,9 @@
   [{:keys [selector body media-key]} vars* opts]
   (let [css-stmts (map (fn [[k v]] (->css-stmt k v vars* opts)) body)
         css-sel (->css-selector selector)
-        media (get *media* media-key)]
+        media (get default-media media-key)]
     (if media
-      (format "@media %s{%s{%s}}" media css-sel (apply str css-stmts))
+      (format "@media %s{%s{%s}}" (->css-media media) css-sel (apply str css-stmts))
       (format "%s{%s}" css-sel (apply str css-stmts)))))
 
 (defn- expand-media [base]
@@ -221,8 +183,8 @@
                  (keep (fn [[k v]]
                          (when (str/ends-with? (name k) "?")
                            (->> (for [[prop value] v]
-                                  [prop `(fn* [props#]
-                                              (if (~k props#)
+                                  [prop `(fn* [css#]
+                                              (if (~k css#)
                                                 ~value
                                                 ~(or (get body prop)
                                                      "")))])
@@ -265,12 +227,12 @@
   CSS variable are not supported here."
   [kf keyframes opts]
   (let [base-list (for [[k style] keyframes]
-                    {:body style :vendors *vendors* :selector (name k)})
+                    {:body style :vendors default-vendors :selector (name k)})
         css       (->> base-list
                        (map convert-vendors)
                        (map #(compile-source % (atom {}) opts)))
 
-        kf-vendors (get *vendors* :keyframes)]
+        kf-vendors (get default-vendors :keyframes)]
     (apply str
            (format "@keyframes %s{%s}" kf (apply str css))
            (map #(format "@-%s-keyframes %s{%s}" (name %) kf (apply str css))
@@ -282,39 +244,44 @@
 
 (defn- gen-dynamic-component [c cls css new-tag vars]
   (let [props-sym (gensym "props__")
-        bind-vec (->> vars
-                      (mapcat (fn [[expr v]]
-                                (if (keyword? expr)
-                                  [v (list expr props-sym)]
-                                  (let [arity-cnt (count (second expr))]
-                                    (case arity-cnt
-                                      0 [v (list expr)]
-                                      1 [v (list expr props-sym)]
-                                      (property-fn-arity-error arity-cnt))))))
-                      vec)
-        style  (->> vars
-                    (map (fn [[_expr v]] [(str "--" v) v]))
-                    (into {}))]
+        css-sym (gensym "css__")
+        bind-vec  (->> vars
+                       (mapcat (fn [[expr v]]
+                                 (cond (keyword? expr)
+                                       [v (list expr css-sym)]
+
+                                       :else
+                                       (let [arity-cnt (count (second expr))]
+                                         (case arity-cnt
+                                           0 [v (list expr)]
+                                           1 [v (list expr css-sym)]
+                                           (property-fn-arity-error arity-cnt))))))
+                       (concat [css-sym (list :css props-sym)])
+                       vec)
+        style (->> vars
+                   (map (fn [[_expr v]] [(str "--" v) v]))
+                   (into {}))]
     `(do
        (mcss.rt/inject-style! ~cls ~css)
-       (defn ~c
+       (defn ~(with-meta c {:mcss/type :dynamic-component})
          [~props-sym & children#]
          (let ~bind-vec
-           (into [~new-tag (merge ~props-sym {:style ~style})]
+           (into [~new-tag (merge (dissoc ~props-sym :css)
+                                  {:style ~style})]
                  children#))))))
 
 (defn- gen-static-component [c cls css new-tag]
   `(do
      (mcss.rt/inject-style! ~cls ~css)
-     (def ~c ~new-tag)))
+     (def ~(with-meta c {:mcss/type :static-component}) ~new-tag)))
 
-(defn- gen-keyframes [kf css]
+(defn- gen-keyframes [sym kf css]
   `(do (mcss.rt/inject-style! ~kf ~css)
-       (def ~(symbol kf) nil)))
+       (def ~(with-meta sym {:mcss/type :keyframes}) nil)))
 
-(defn- gen-custom [k css]
-  `(do (mcss.rt/inject-custom! ~k ~css)
-       (def ~(symbol k) nil)))
+(defn- gen-custom [sym name css]
+  `(do (mcss.rt/inject-custom! ~name ~css)
+       (def ~(with-meta sym {:mcss/type :custom}) nil)))
 
 (defn- gen-style [k css]
   `(mcss.rt/inject-style! ~k ~css))
@@ -326,7 +293,7 @@
 (defmacro defstyled
   "Define a styled hiccup component. "
   [c tag style]
-  (let [opts    {:env &env}
+  (let [opts       {:env (or &env {})}
         nname      (str *ns*)
         cls        (str/replace (str nname "_" c) #"\." "-")
         [css vars] (compile-css cls style opts)
@@ -339,20 +306,19 @@
 
 (defmacro defkeyframes
   "Define a keyframes."
-  [kf & frames]
+  [sym & frames]
   (let [opts {:env &env}
-        kf (->sanitize-symbol-name kf opts)
+        kf (->sanitize-symbol-name sym opts)
         css (compile-keyframes kf frames opts)]
-    (gen-keyframes kf css)))
+    (gen-keyframes sym kf css)))
 
 (defmacro defcustom
   "Define a custom variable."
-  [c v]
+  [sym value]
   (let [opts {:env &env}
-
-        c (str "--" (->sanitize-symbol-name c opts))
-        v (->css-value v (atom {}) opts)]
-    (gen-custom c (format "%s:%s;" c v))))
+        name (str "--" (->sanitize-symbol-name sym opts))
+        css-val (->css-value value (atom {}) opts)]
+    (gen-custom sym name (format "%s:%s;" name css-val))))
 
 (defmacro defrule
   "Define a simple class based style."
@@ -362,76 +328,17 @@
         [css] (compile-css cls style opts)]
     (gen-style cls css)))
 
-
+(defmacro t [x]
+  `(def ~(with-meta x {:foo :bar}) nil))
 
-;;; Initializer
+(defmacro m [x]
+  (str (:meta (aa/resolve &env x))))
 
-(defmacro set-vendors! [vendors]
-  (alter-var-root #'*vendors* (fn [_] vendors)))
-
-(defmacro set-media! [media]
-  (let [media (->> (for [[k v] media]
-                     [k (->css-media v)])
-                   (into {}))]
-    (alter-var-root #'*media* (fn [_] media))))
 
 (comment
 
-  (defkeyframes kf
-    ["0%" {:top "0px"}]
-    ["100%" {:top "100px"}])
-
-  (defrule :bg-red
-    {:background-color "red"})
-
-  (clojure.pprint/pprint
-   (compile-css
-    "foo"
-    (quote
-     ^{:pseudo  {:before {:color "red"}
-                 :hover  {:color "green"}}
-       :vendors {:justify-content [:webkit :moz]}
-       :media   {:not-small
-                 ^{:pseudo {:before {:color "blue"}}}
-                 {:color   "yellow"
-                  :active? {:background-color "black"}}
-
-                 :large
-                 {:color "purple"}}}
-     {:color            "red"
-      :background-color :bg-color
-      :justify-content  "center"
-      :width            #(str % "px")
-      :border           [["thin" "solid" "grey"]]
-      :active?          {:border           [["thin" "solid" :bdclr]]
-                         :background-color "white"}})
-    {}))
-
-  (clojure.pprint/pprint
-   (macroexpand-1
-    '(defstyled my-btn :button
-       {:color "blue"})))
-
-  (clojure.pprint/pprint
-   (macroexpand-1
-    '(defstyled my-btn :button
-       {:color str/blank?})))
-
-  (clojure.pprint/pprint
-   (macroexpand-1
-    '(defstyled my-btn :button
-       {:background-color :bg-clr
-        :color            "blue"
-        :font-size        #(inc (:fts %))})))
-
-  (clojure.pprint/pprint
-   (macroexpand-1
-    '(defstyled my-btn :button.foo
-       ^{:pseudo {:before {:content "'hello'"}}}
-       {:background-color :bg-clr
-        :color            "blue"
-        :justify-content  "center"
-        :align-items      "center"
-        :font-size        #(inc (:fts %))})))
+  (macroexpand-1
+   '(defrule ".r10"
+      {:transform {:rotate demo.simple/r}}))
 
   )
