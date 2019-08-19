@@ -136,7 +136,7 @@
 
     ;; Keyword will be convert to css variable.
     (keyword? v)
-    (let [s (symbol (gensym (str (name v) "__")))
+    (let [s (symbol (name v))
           cssvar (format "var(--%s)" s)
           pair [v s]]
       (swap! vars* conj pair)
@@ -157,7 +157,7 @@
     ;; CSS function call
     (list? v)
     (cond (= 'cssvar (first v)) (format "var(--%s)" (->sanitize-symbol-name (second v) opts))
-          :else (format "%s(%s)" (first v) (str/join "," (map str (next v)))))
+          :else (format "%s(%s)" (first v) (str/join "," (map name (next v)))))
 
     :else
     (invalid-property-value-error v)))

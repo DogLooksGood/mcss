@@ -42,7 +42,7 @@
     :pseudo {:hover {:border (cssvar bd-act)
                      :border-color #(rgb (- 255 (:red %)) 30 30)}}}
   {:border (cssvar bd-1)
-   :width "3rem"
+   :width :width
    :box-sizing "border-box"
    :animation [[ft-pulse "2s" "infinite" "alternate"]]
    :background-color #(rgb (:red %) 128 128)})
@@ -51,7 +51,10 @@
   [Root
    (for [i (range 255)]
      ^{:key i}
-     [Grid {:red i :on-click #(js/alert (str "Click at:" i))} (str i)])])
+     [Grid {:red i
+            :width "3rem"
+            :on-click #(js/alert (str "Click at:" i))}
+      (str i)])])
 
 (defn mount []
   (let [t (.getTime (js/Date.))]
