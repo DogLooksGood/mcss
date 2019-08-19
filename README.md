@@ -23,14 +23,14 @@ Put this in both init function and after-load function(in development).
 Use keyword for property, string or number for simple value.
 
 ```clojure
-(defrule :.c-red
+(defrule ".c-red"
   {:color "red"})
 ```
 
 Use `[]` for comma-separated list values.
 
 ``` clojure
-(defrule :.ft-lg
+(defrule ".ft-lg"
   {:font-size "1.8rem"
    :font-family ["Consolas" "Courier New" "Menlo"]})
 ```
@@ -38,14 +38,14 @@ Use `[]` for comma-separated list values.
 Use `[[]]`(vector of vector) for whitespace-separated list value.
 
 ```clojure
-(defrule :.bd
+(defrule ".bd"
   {:border [["thin" "solid" "#666"]]})
 ```
 
 Use `{}` for function call.
 
 ```clojure
-(defrule :.foo
+(defrule ".foo"
   {:color     {:rgb [255 0 0]}
    :transform {:rotate "10deg"}})
 ```
