@@ -11,6 +11,10 @@
 (defcustom r "8deg")
 (defcustom p80 "80%")
 
+(defrule "*"
+  {:margin     0
+   :padding    0})
+
 (defrule ".h100"
   {:height "100vh"})
 
@@ -28,11 +32,14 @@
    :justify-content "center"
    :align-items     "center"})
 
+(defrule ".foo > *"
+  {:border-radius "5%"})
+
 (defkeyframes ft-pulse
   [:from {:color {:hsl [210 p80 p80]}}]
   [:to   {:color {:rgb [0 0 0]}}])
 
-(defstyled Root :div.h100.w100
+(defstyled Root :div.h100.w100.foo
   {:display     "flex"
    :font-family ft
    :flex-wrap   "wrap"})

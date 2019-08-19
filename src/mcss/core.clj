@@ -167,16 +167,17 @@
           (update :body style-merge v)
           (update :pseudo style-merge p)))))
 
-(defn- expand-pseudo [{:keys [cls body pseudo vendors media-key]}]
-  (cons {:selector (str "." (name cls))
-         :body body
-         :vendors vendors
-         :media-key media-key}
-        (for [[p v] pseudo]
-          {:selector (str "." (name cls) ":" (name p))
-           :body v
+(defn- expand-pseudo [{:keys [selector cls body pseudo vendors media-key]}]
+  (let [sel (if selector selector (str "." (name cls)))]
+    (cons {:selector sel
+           :body body
            :vendors vendors
-           :media-key media-key})))
+           :media-key media-key}
+          (for [[p v] pseudo]
+            {:selector (str sel ":" (name p))
+             :body v
+             :vendors vendors
+             :media-key media-key}))))
 
 (defn- convert-question-mark [{:keys [body] :as source}]
   (let [lst (->> body
@@ -221,6 +222,20 @@
                  (map #(compile-source % vars* opts)))]
     [(str/join "\n" css)
      @vars*]))
+
+(defn- compile-rule
+  "Compile a single Clojure style, return CSS string."
+  [sel style opts]
+  (let [{:keys [vendors media pseudo]} (meta style)
+        base {:body style :media media :pseudo pseudo :vendors (merge *vendors* vendors)
+              :selector sel}
+        vars* (atom {})
+        css (->> base
+                 (expand-media)
+                 (mapcat expand-pseudo)
+                 (map convert-vendors)
+                 (map #(compile-source % vars* opts)))]
+    (str/join "\n" css)))
 
 (defn- compile-keyframes
   "Compile Clojure keyframe style, return CSS string.
@@ -324,9 +339,8 @@
   "Define a simple class based style."
   [sel style]
   (let [opts {:env &env}
-        cls (subs sel 1)
-        [css] (compile-css cls style opts)]
-    (gen-style cls css)))
+        css (compile-rule sel style opts)]
+    (gen-style sel css)))
 
 (defmacro t [x]
   `(def ~(with-meta x {:foo :bar}) nil))
