@@ -341,18 +341,3 @@
   (let [opts {:env &env}
         css (compile-rule sel style opts)]
     (gen-style sel css)))
-
-(defmacro t [x]
-  `(def ~(with-meta x {:foo :bar}) nil))
-
-(defmacro m [x]
-  (str (:meta (aa/resolve &env x))))
-
-
-(comment
-
-  (macroexpand-1
-   '(defrule ".r10"
-      {:transform {:rotate demo.simple/r}}))
-
-  )
