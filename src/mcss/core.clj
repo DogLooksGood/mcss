@@ -1,8 +1,9 @@
 (ns mcss.core
   (:require [clojure.string :as str]
             [mcss.defaults :refer [default-vendors default-media]]
-            [cljs.analyzer.api :as aa]))
-
+            [mcss.specs :as specs]
+            [cljs.analyzer.api :as aa]
+            [clojure.spec.alpha :as s]))
 
 ;;; Errors
 ;;; TODO add more errors
@@ -45,8 +46,8 @@
          (name s))))
 
 (defn- ->css-selector
-  [cls]
-  (name cls))
+  [sel]
+  (name sel))
 
 (defn- ->css-property
   [p opts]
@@ -211,7 +212,7 @@
   "Compile Clojure style, return CSS string and a mapping of CSS variables."
   [cls style opts]
   (let [{:keys [vendors media pseudo]} (meta style)
-        base {:body style :media media :pseudo pseudo :vendors (merge *vendors* vendors)
+        base {:body style :media media :pseudo pseudo :vendors (merge default-vendors vendors)
               :cls cls}
         vars* (atom {})
         css (->> base
@@ -227,7 +228,7 @@
   "Compile a single Clojure style, return CSS string."
   [sel style opts]
   (let [{:keys [vendors media pseudo]} (meta style)
-        base {:body style :media media :pseudo pseudo :vendors (merge *vendors* vendors)
+        base {:body style :media media :pseudo pseudo :vendors (merge default-vendors vendors)
               :selector sel}
         vars* (atom {})
         css (->> base
@@ -257,7 +258,7 @@
 
 ;;; Output Generator
 
-(defn- gen-dynamic-component [c cls css new-tag vars]
+(defn- gen-dynamic-component [c cls css new-tag vars atomics]
   (let [props-sym (gensym "props__")
         css-sym (gensym "css__")
         bind-vec  (->> vars
@@ -283,12 +284,16 @@
          (let ~bind-vec
            (into [~new-tag (merge (dissoc ~props-sym :css)
                                   {:style ~style})]
-                 children#))))))
+                 children#)))
+       ~@(for [a atomics]
+           `(~a)))))
 
-(defn- gen-static-component [c cls css new-tag]
+(defn- gen-static-component [c cls css new-tag atomics]
   `(do
      (mcss.rt/inject-style! ~cls ~css)
-     (def ~(with-meta c {:mcss/type :static-component}) ~new-tag)))
+     (def ~(with-meta c {:mcss/type :static-component}) ~new-tag)
+     ~@(for [a atomics]
+         `(~a))))
 
 (defn- gen-keyframes [sym kf css]
   `(do (mcss.rt/inject-style! ~kf ~css)
@@ -298,8 +303,9 @@
   `(do (mcss.rt/inject-custom! ~name ~css)
        (def ~(with-meta sym {:mcss/type :custom}) nil)))
 
-(defn- gen-style [k css]
-  `(mcss.rt/inject-style! ~k ~css))
+(defn- gen-style [sym sel css]
+  `(defn ~sym []
+     (mcss.rt/inject-style! ~sel ~css)))
 
 
 
@@ -307,17 +313,27 @@
 
 (defmacro defstyled
   "Define a styled hiccup component. "
-  [c tag style]
-  (let [opts       {:env (or &env {})}
-        nname      (str *ns*)
-        cls        (str/replace (str nname "_" c) #"\." "-")
-        [css vars] (compile-css cls style opts)
-        new-tag    (keyword (str (name tag) "." cls))]
+  {:arglists '[(component tag atomics style)]}
+  [& args]
+  (let [opts         {:env (or &env {})}
+
+        {:keys [c tag atomics style]}
+        (s/conform ::specs/defsyled args)
+
+        nname        (str *ns*)
+        cls          (str/replace (str nname "_" c) #"\." "-")
+        [css vars]   (compile-css cls style opts)
+        add-cls-list (map #(str "." (->sanitize-symbol-name % opts)) atomics)
+        new-tag      (keyword
+                      (str (name tag) "." cls
+                                   (if (seq add-cls-list)
+                                     (str/join "." add-cls-list)
+                                     "")))]
     (if (seq vars)
       ;; Dynamic
-      (gen-dynamic-component c cls css new-tag vars)
+      (gen-dynamic-component c cls css new-tag vars atomics)
       ;; Static
-      (gen-static-component c cls css new-tag))))
+      (gen-static-component c cls css new-tag atomics))))
 
 (defmacro defkeyframes
   "Define a keyframes."
@@ -337,7 +353,8 @@
 
 (defmacro defrule
   "Define a simple class based style."
-  [sel style]
+  [sym style]
   (let [opts {:env &env}
+        sel (str "." (->sanitize-symbol-name sym opts))
         css (compile-rule sel style opts)]
-    (gen-style sel css)))
+    (gen-style sym sel css)))

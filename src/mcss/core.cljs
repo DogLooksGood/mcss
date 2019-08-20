@@ -1,7 +1,6 @@
 (ns mcss.core
-  (:require-macros mcss.core)
+  (:require-macros [mcss.core])
   (:require [mcss.rt :as rt]))
-
 
 (defn load-styles! []
   (let [style-str (rt/build-style)

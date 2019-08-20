@@ -1,5 +1,6 @@
 (ns demo.simple
   (:require [reagent.core :as reagent]
+            [demo.some-defs :as d :refer [o c r10]]
             [mcss.core :as mcss :refer
              [defrule defstyled defkeyframes defcustom load-styles!]]
             [goog.string.format]))
@@ -8,43 +9,27 @@
 (defcustom bd-1 [["thin" "solid" "#99ff99"]])
 (defcustom bd-2 [["5px" "solid" "#9999ff"]])
 (defcustom bd-act [["2px" "solid" "#ff9999"]])
-(defcustom r "8deg")
+
 (defcustom p80 "80%")
 
-(defrule "*"
-  {:margin     0
-   :padding    0})
-
-(defrule ".h100"
+(defrule h100
   {:height "100vh"})
 
-(defrule ".w100"
+(defrule w100
   {:width "100vw"})
-
-(defrule ".o"
-  {:border-raidus "50%"})
-
-(defrule ".r10"
-  {:transform {:rotate r}})
-
-(defrule ".c"
-  {:display         "flex"
-   :justify-content "center"
-   :align-items     "center"})
-
-(defrule ".foo > *"
-  {:border-radius "5%"})
 
 (defkeyframes ft-pulse
   [:from {:color {:hsl [210 p80 p80]}}]
   [:to   {:color {:rgb [0 0 0]}}])
 
-(defstyled Root :div.h100.w100.foo
+(defstyled Root :div
+  [h100 w100]
   {:display     "flex"
    :font-family ft
    :flex-wrap   "wrap"})
 
-(defstyled Grid :div.o.c.r10
+(defstyled Grid :div
+  [d/o d/c d/r10]
   ^{:media  {:medium {:border bd-2}}
     :pseudo {:hover {:border       bd-act
                      :border-color {:rgb [#(- 255 (:red %)) 30 30]}}}}
@@ -54,6 +39,7 @@
    :animation        [[ft-pulse "2s" "infinite" "alternate"]]
    :background-color {:rgb [:red 128 128]}
    :active? {:font-weight "bold"
+             :color "white"
              :font-size "1.5rem"}})
 
 (defn foo [{:keys [active?]}]
