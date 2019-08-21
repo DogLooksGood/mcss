@@ -9,8 +9,8 @@
 
 (s/def ::style map?)
 
-(s/def ::defsyled
+(s/def ::defstyled
   (s/cat :c ::component
          :tag ::tag
          :atomics (s/? ::atomics)
-         :style ::style))
+         :style (s/? ::style)))

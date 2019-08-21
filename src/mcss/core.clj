@@ -45,6 +45,10 @@
          "__"
          (name s))))
 
+(defn- ->css-combinator
+  [s]
+  s)
+
 (defn- ->css-selector
   [sel]
   (name sel))
@@ -142,6 +146,15 @@
 
 ;;; Compiler
 
+(defn- build-style-input [selector style]
+  (let [{:keys [vendors media pseudo combinators]}
+        (meta style)]
+    {:body        style
+     :media       media
+     :pseudo      pseudo
+     :vendors     (merge default-vendors vendors)
+     :combinators combinators
+     :selector    selector}))
 
 (defn- style-merge [s1 s2]
   (cond (map? s2) (merge-with style-merge s1 s2)
@@ -168,17 +181,22 @@
           (update :body style-merge v)
           (update :pseudo style-merge p)))))
 
-(defn- expand-pseudo [{:keys [selector cls body pseudo vendors media-key]}]
-  (let [sel (if selector selector (str "." (name cls)))]
-    (cons {:selector sel
-           :body body
-           :vendors vendors
-           :media-key media-key}
-          (for [[p v] pseudo]
-            {:selector (str sel ":" (name p))
-             :body v
-             :vendors vendors
-             :media-key media-key}))))
+(defn- expand-combinators
+  "Extract combinators from base style."
+  [{:keys [selector combinators] :as style}]
+  (cons
+   (dissoc style :combinators)
+   (for [[c sub-style] combinators]
+     (build-style-input (str selector " " (->css-combinator c))
+                        sub-style))))
+
+(defn- expand-pseudo
+  [{:keys [selector pseudo] :as style}]
+  (cons
+   (dissoc style :pseudo)
+   (for [[p v] pseudo]
+     (build-style-input (str selector ":" (name p))
+                        v))))
 
 (defn- convert-question-mark [{:keys [body] :as source}]
   (let [lst (->> body
@@ -211,31 +229,37 @@
 (defn- compile-css
   "Compile Clojure style, return CSS string and a mapping of CSS variables."
   [cls style opts]
-  (let [{:keys [vendors media pseudo]} (meta style)
-        base {:body style :media media :pseudo pseudo :vendors (merge default-vendors vendors)
-              :cls cls}
+  (let [base  (build-style-input (str "." cls) style)
         vars* (atom {})
-        css (->> base
-                 (expand-media)
-                 (mapcat expand-pseudo)
-                 (map convert-question-mark)
-                 (map convert-vendors)
-                 (map #(compile-source % vars* opts)))]
+        css   (->> [base]
+                   (mapcat expand-combinators)
+                   (mapcat expand-media)
+                   (mapcat expand-pseudo)
+                   (map convert-question-mark)
+                   (map convert-vendors)
+                   (map #(compile-source % vars* opts)))]
     [(str/join "\n" css)
      @vars*]))
 
 (defn- compile-rule
   "Compile a single Clojure style, return CSS string."
   [sel style opts]
-  (let [{:keys [vendors media pseudo]} (meta style)
-        base {:body style :media media :pseudo pseudo :vendors (merge default-vendors vendors)
-              :selector sel}
+  (let [{:keys [vendors media pseudo combinators]}
+        (meta style)
+
+        base  {:body        style
+               :media       media
+               :pseudo      pseudo
+               :vendors     (merge default-vendors vendors)
+               :combinators combinators
+               :selector    sel}
         vars* (atom {})
-        css (->> base
-                 (expand-media)
-                 (mapcat expand-pseudo)
-                 (map convert-vendors)
-                 (map #(compile-source % vars* opts)))]
+        css   (->> [base]
+                   (mapcat expand-combinators)
+                   (mapcat expand-media)
+                   (mapcat expand-pseudo)
+                   (map convert-vendors)
+                   (map #(compile-source % vars* opts)))]
     (str/join "\n" css)))
 
 (defn- compile-keyframes
@@ -305,7 +329,8 @@
 
 (defn- gen-style [sym sel css]
   `(defn ~sym []
-     (mcss.rt/inject-style! ~sel ~css)))
+     (mcss.rt/inject-style! ~sel ~css)
+     ~sel))
 
 
 
@@ -317,9 +342,10 @@
   [& args]
   (let [opts         {:env (or &env {})}
 
-        {:keys [c tag atomics style]}
-        (s/conform ::specs/defsyled args)
+        {:keys [c tag atomics style] :as x}
+        (s/conform ::specs/defstyled args)
 
+        style        (or style {})
         nname        (str *ns*)
         cls          (str/replace (str nname "_" c) #"\." "-")
         [css vars]   (compile-css cls style opts)
