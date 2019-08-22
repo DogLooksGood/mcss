@@ -2,7 +2,6 @@
   (:require [clojure.string :as str]
             [mcss.defaults :refer [default-vendors default-media]]
             [mcss.specs :as specs]
-            [cljs.analyzer.api :as aa]
             [clojure.spec.alpha :as s]))
 
 ;;; Errors
@@ -75,27 +74,9 @@
 
       ;; Refer to a custom valiable or keyframes
       (symbol? v)
-      (let [{:keys [meta] :as r} (aa/resolve (:env opts) v)
-            #:mcss{:keys [type]} meta]
-        (case type
-          :keyframes
-          (do
-            (swap! replaces* conj v)
-            "%s")
-
-          :custom
-          (do
-            (swap! replaces* conj v)
-            "var(%s)")
-
-          :static-component
-          (invalid-component-position-error v)
-
-          :dynamic-component
-          (invalid-component-position-error v)
-
-          ;; Other symbol will be considered as function.
-          (invalid-symbol-error v)))
+      (do
+        (swap! replaces* conj v)
+        "%s")
 
       ;; Function or symbol(refer to function) used to extract data
       (and (seq? v) (#{'fn 'fn*} (first v)))
@@ -117,6 +98,11 @@
                 (->> args
                      (map #(->css-value % opts))
                      (str/join ","))))
+
+      (and (list? v) (symbol? (first v)))
+      (do
+        (swap! replaces* conj (first v))
+        "var(%s)")
 
       :else
       (invalid-property-value-error v))))
@@ -190,21 +176,30 @@
      (build-style-input (str selector ":" (name p))
                         v))))
 
-(defn- convert-question-mark [{:keys [body] :as source}]
-  (let [lst (->> body
-                 (keep (fn [[k v]]
-                         (when (str/ends-with? (name k) "?")
-                           (->> (for [[prop value] v]
-                                  [prop `(fn* [css#]
-                                              (if (~k css#)
-                                                ~value
-                                                ~(or (get body prop)
-                                                     "")))])
-                                (into {}))))))
-        s (->> body
-               (filter #(not (str/ends-with? (name (key %)) "?")))
-               (into {}))]
-    (assoc source :body (apply merge s lst))))
+(defn- expand-question-mark [{:keys [selector body] :as source} opts]
+  (let [base
+        (->> body
+             (filter
+              (fn [[k _]]
+                (not (str/ends-with? (name k) "?"))))
+             (into {}))
+
+        base-source
+        {:body base}
+
+        ext-source-list
+        (->> body
+             (keep
+              (fn [[k v]]
+                (when (str/ends-with? (name k) "?")
+                  (let [postfix (str "___" (str/replace (name k) #"\?" ""))]
+
+                    (swap! (:toggles* opts) assoc k postfix)
+                    {:body v
+                     :selector
+                     (str selector postfix)})))))]
+    (into [(merge source base-source)]
+          (map #(merge source %) ext-source-list))))
 
 (defn- convert-vendors [{:keys [body vendors] :as source}]
   (let [new-body (->> body
@@ -226,7 +221,7 @@
                    (mapcat expand-combinators)
                    (mapcat expand-media)
                    (mapcat expand-pseudo)
-                   (map convert-question-mark)
+                   (mapcat #(expand-question-mark % opts))
                    (map convert-vendors)
                    (map #(compile-source % opts)))]
     (apply str css)))
@@ -279,23 +274,23 @@
 ;;; Output Generator
 
 (defn- gen-protect-fn-from-dce [fname]
-  `(do (defn ~fname []
+  `(do (defn- ~fname []
          (set! mcss.rt/counter (inc mcss.rt/counter)))))
 
 (defn- sym->fname [sym]
   (symbol (str "--mcss-" (name sym))))
 
 (defn- gen-fname->css-cls [fname]
-  `(if goog.DEBUG
-     (str/replace (.-name ^js ~fname) #"\$" "_")
-     (.-name ^js ~fname)))
+  `(str/replace (.-name ^js ~fname) #"[^A-Za-z0-9-_]" "_"))
 
 (defn- gen-dynamic-component [c tag css atomics opts]
   (let [fname (sym->fname c)
         replaces @(:replaces* opts)
         vars @(:vars* opts)
+        toggles @(:toggles* opts)
         props-sym (gensym "props__")
         css-sym (gensym "css__")
+        cls-sym (gensym "cls__")
         bind-vec  (->> vars
                        (mapcat (fn [[expr v]]
                                  (cond (keyword? expr)
@@ -314,17 +309,29 @@
                    (into {}))]
     `(do
        ~(gen-protect-fn-from-dce fname)
-       (let [cls# ~(gen-fname->css-cls fname)
+       (let [~cls-sym ~(gen-fname->css-cls fname)
              addon-cls# (->> (map #(str "." (%)) ~atomics)
                              (apply str))
-             tag# (keyword (str ~(name tag) "." cls# addon-cls#))]
-         (mcss.rt/reg-style cls# ~css ~replaces ~fname)
+             tag# (keyword (str ~(name tag) "." ~cls-sym addon-cls#))]
+         (mcss.rt/reg-style ~cls-sym ~css ~replaces ~fname)
          (defn ~(with-meta c {:mcss/type :dynamic-component})
            [~props-sym & children#]
            (let ~bind-vec
-             (into [tag# (merge (dissoc ~props-sym :css)
-                                {:style ~style})]
-                   children#)))))))
+             (let [class# (if ~(boolean (seq toggles))
+                            ~(vec
+                              (keep
+                               (fn [[t postfix]]
+                                 `(if (~t ~css-sym)
+                                    (str ~cls-sym ~postfix)
+                                    ""))
+                               toggles))
+                            `[])]
+               (if (map? ~props-sym)
+                 (into [tag# (merge (dissoc ~props-sym :css)
+                                    {:style ~style
+                                     :class class#})]
+                       children#)
+                 (into [tag# {:class class#} ~props-sym] children#)))))))))
 
 (defn- gen-static-component [c tag css atomics opts]
   (let [fname (sym->fname c)
@@ -378,7 +385,8 @@
   [& args]
   (let [opts {:env       (or &env {})
               :vars*     (atom {})
-              :replaces* (atom [])}
+              :replaces* (atom [])
+              :toggles*  (atom {})}
 
         {:keys [c tag atomics style]}
         (s/conform ::specs/defstyled args)
@@ -386,7 +394,7 @@
         style (or style {})
         cls   "$$"
         css   (compile-css cls style opts)]
-    (if (seq @(:vars* opts))
+    (if (or (seq @(:toggles* opts)) (seq @(:vars* opts)))
       ;; Dynamic
       (gen-dynamic-component c tag css atomics opts)
       ;; Static

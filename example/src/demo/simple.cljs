@@ -2,6 +2,7 @@
   (:require [reagent.core :as reagent]
             [mcss.core :as mcss :refer [load-styles!]]
             [demo.perf :refer [root]]
+            #_[demo.condition :refer [root]]
             #_[demo.compress :refer [root]]
             #_[demo.combinator-demo :refer [root]]))
 

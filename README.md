@@ -129,7 +129,7 @@ Use it like this:
 
 ```clojure
 (defstyled my-div :div
-  {:color some-color})
+  {:color (some-color)})
 ```
 
 ## defkeyframes - Define a keyframe

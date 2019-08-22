@@ -28,12 +28,12 @@
 
 (defkeyframes ft-pulse
   [:from {:transform {:rotate "0deg"}}]
-  [:to   {:transform {:rotate max-rotate}}])
+  [:to   {:transform {:rotate (max-rotate)}}])
 
 (defstyled Root :div
   [h100 w100]
   {:display     "flex"
-   :font-family ft
+   :font-family (ft)
    :flex-wrap   "wrap"})
 
 (defstyled GridBox :div
@@ -43,24 +43,23 @@
    :justify-content "center"
    :align-items     "center"})
 
+(defcustom bg-ft "1.8rem")
+
 (defstyled Grid :div
   [d/o d/c d/r10]
-  ^{:media  {:medium {:border bd-2}}
-    :pseudo {:hover {:border       bd-act
+  ^{:media  {:medium {:border (bd-2)}}
+    :pseudo {:hover {:border (bd-act)
                      :border-color {:rgb [#(- 255 (:red %)) 30 30]}}}}
-  {:border           bd-1
+  {:border           (bd-1)
    :width            "90%"
    :height           "90%"
    :box-sizing       "border-box"
    max-rotate        :rotate
    :animation        [[ft-pulse "2s" "infinite" "alternate"]]
    :background-color {:rgb [:red 128 128]}
-   :active? {:font-weight "bold"
-             :color "white"
-             :font-size "1.5rem"}})
-
-(defn foo [{:keys [active?]}]
-  [:div (str active?)])
+   :bo?          {:font-weight "bold"
+                  :color       "white"
+                  :font-size   (bg-ft)}})
 
 (defn root []
   (let [active* (reagent/atom nil)
@@ -73,7 +72,7 @@
            ^{:key i}
            [GridBox {:css {:size "3rem"}}
             [Grid {:on-click (nth on-click-fns i)
-                   :css {:active? (= i idx)
+                   :css {:bo? (= i idx)
                          :width "3rem"
                          :rotate (str i "deg")
                          :red (mod i 255)}}

@@ -12,7 +12,8 @@
 (def counter 0)
 
 (defn format-css [cls css args]
-  (apply goog.string.format (str/replace css #"\$\$" cls)
+  (apply goog.string.format
+         (str/replace css #"\$\$" cls)
          (map (fn [f] (f)) args)))
 
 (defn reg-style
