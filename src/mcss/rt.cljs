@@ -1,22 +1,35 @@
 (ns mcss.rt
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [goog.string.format]
+            [goog.object :as gobj]))
 
 (def style-tag-id "mcss-style-target-id")
 
-(defonce customs* (atom {}))
-(defonce styles* (atom {}))
+(defonce customs #js {})
+(defonce styles #js {})
 
-(defn inject-style! [cls css]
-  (swap! styles* assoc cls css))
+;;; This is used to provent DCE for some functions
+(def counter 0)
 
-(defn inject-custom! [k css]
-  (swap! customs* assoc k css))
+(defn format-css [cls css args]
+  (apply goog.string.format (str/replace css #"\$\$" cls)
+         (map (fn [f] (f)) args)))
+
+(defn reg-style
+  [cls css args protect-fn]
+  (when (or goog.DEBUG (not (gobj/get styles cls)))
+    (protect-fn)
+    (gobj/set styles cls (format-css cls css args))))
+
+(defn reg-custom [pname css args protect-fn]
+  (when (or goog.DEBUG (not (gobj/get customs pname)))
+    (protect-fn)
+    (gobj/set customs pname (format-css pname css args))))
 
 (defn build-style []
-  (str ":root{"
-       (str/join "\n" (vals @customs*))
-       "}\n"
-       (str/join "\n" (vals @styles*))))
+  (goog.string.format ":root{%s}%s"
+                      (apply str (gobj/getValues customs))
+                      (apply str (gobj/getValues styles))))
 
 (defn get-or-create-style-elm []
   (or (.getElementById js/document style-tag-id)

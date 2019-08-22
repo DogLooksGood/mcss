@@ -1,17 +1,17 @@
 (ns demo.simple
   (:require [reagent.core :as reagent]
-            [mcss.core :as mcss :refer
-             [load-styles!]]
-            [demo.perf :as perf]
-            #_[demo.combinator-demo :as combinator-demo]))
+            [mcss.core :as mcss :refer [load-styles!]]
+            [demo.perf :refer [root]]
+            #_[demo.compress :refer [root]]
+            #_[demo.combinator-demo :refer [root]]))
 
 (defn mount []
-  (let [t (.getTime (js/Date.))]
-    (load-styles!)
-    (reagent/render [perf/root]
-                    (.getElementById js/document "app"))
-    (.log js/console
-          "Cost" (- (.getTime (js/Date.)) t) "ms.")))
+  (load-styles!)
+  (.log js/console
+        "Cost"
+        (- (.getTime (js/Date.)) (.-startTimestamp js/window))
+        "ms")
+  (reagent/render [root] (.getElementById js/document "app")))
 
 (defn after-load []
   (mount))

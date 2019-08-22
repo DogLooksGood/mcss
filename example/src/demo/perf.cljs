@@ -2,14 +2,14 @@
   (:require [reagent.core :as reagent]
             [demo.some-defs :as d :refer [o c r10]]
             [mcss.core :as mcss :refer
-             [defrule defstyled defkeyframes defcustom load-styles!]]
-            [goog.string.format]))
+             [defrule defstyled defkeyframes defcustom load-styles!]]))
 
 (defcustom ft ["Consolas" "Input Mono" "DejaVu Sans Mono"])
 (defcustom bd-1 [["thin" "solid" "#99ff99"]])
 (defcustom bd-2 [["5px" "solid" "#9999ff"]])
 (defcustom bd-act [["2px" "solid" "#ff9999"]])
 (defcustom p80 "80%")
+(defcustom useless "99%")
 
 (defrule h100
   {:height "100vh"})
@@ -17,9 +17,16 @@
 (defrule w100
   {:width "100vw"})
 
+(defkeyframes ft-pulse99
+  [:from {:color "#999999"}]
+  [:to {:color "#999999"}])
+
+(defrule w99
+  {:width "99vw"})
+
 (defkeyframes ft-pulse
-  [:from {:color {:hsl [210 p80 p80]}}]
-  [:to   {:color {:rgb [0 0 0]}}])
+  [:from {:transform {:rotate "0deg"}}]
+  [:to   {:transform {:rotate "360deg"}}])
 
 (defstyled Root :div
   [h100 w100]
@@ -27,13 +34,21 @@
    :font-family ft
    :flex-wrap   "wrap"})
 
+(defstyled GridBox :div
+  {:width           :size
+   :height          :size
+   :display         "flex"
+   :justify-content "center"
+   :align-items     "center"})
+
 (defstyled Grid :div
   [d/o d/c d/r10]
   ^{:media  {:medium {:border bd-2}}
     :pseudo {:hover {:border       bd-act
                      :border-color {:rgb [#(- 255 (:red %)) 30 30]}}}}
   {:border           bd-1
-   :width            :width
+   :width            "90%"
+   :height           "90%"
    :box-sizing       "border-box"
    :animation        [[ft-pulse "2s" "infinite" "alternate"]]
    :background-color {:rgb [:red 128 128]}
@@ -45,14 +60,17 @@
   [:div (str active?)])
 
 (defn root []
-  (let [active* (reagent/atom nil)]
+  (let [active* (reagent/atom nil)
+        nums (range 1000)
+        on-click-fns (map (fn [i] #(reset! active* i)) nums)]
     (fn []
       (let [idx @active*]
         [Root
-         (for [i (range 255)]
+         (for [i nums]
            ^{:key i}
-           [Grid {:on-click #(reset! active* i)
-                  :css {:active? (= i idx)
-                        :width "3rem"
-                        :red i}}
-            (str i)])]))))
+           [GridBox {:css {:size "3rem"}}
+            [Grid {:on-click (nth on-click-fns i)
+                   :css {:active? (= i idx)
+                         :width "3rem"
+                         :red (mod i 255)}}
+             (str i)]])]))))

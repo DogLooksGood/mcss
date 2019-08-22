@@ -29,22 +29,6 @@
 
 ;;; Transform
 
-(defn- ->sanitize-symbol-name [s {:keys [env] :as _opts}]
-  (if env
-    (if (namespace s)
-      (-> (aa/resolve env s)
-          :name
-          str
-          (str/replace #"\." "_")
-          (str/replace #"/" "__"))
-      (let [nname (name (get-in env [:ns :name]))]
-        (str (str/replace nname #"\." "_")
-             "__"
-             (name s))))
-    (str (str/replace *ns* #"\." "_")
-         "__"
-         (name s))))
-
 (defn- ->css-combinator
   [s]
   s)
@@ -55,79 +39,87 @@
 
 (defn- ->css-property
   [p opts]
-  (cond
-    (symbol? p)
-    (let [s (->sanitize-symbol-name p opts)]
-      (str "--" s))
+  (let [{:keys [replaces*]} opts]
+    (cond
+      (symbol? p)
+      (do (swap! replaces* conj p)
+          "%s")
 
-    (keyword? p)
-    (name p)
+      (keyword? p)
+      (name p)
 
-    :else p))
+      :else p)))
 
-(defn- ->css-value [v vars* opts]
-  (cond
-    ;; string -> common css value.
-    ;; number -> common css value.
-    (or (string? v) (number? v))
-    v
+(defn- ->css-value [v opts]
+  (let [{:keys [vars* replaces*]} opts]
+    (cond
+      ;; string -> common css value.
+      ;; number -> common css value.
+      (or (string? v) (number? v))
+      v
 
-    ;; Vector is a list separate by comma,
-    ;; Vector of vector is a list separate by space.
-    (vector? v)
-    (->> v
-         (map #(->css-value % vars* (assoc opts :inside-vec? true)))
-         (str/join (if (:inside-vec? opts) " " ",")))
+      ;; Vector is a list separate by comma,
+      ;; Vector of vector is a list separate by space.
+      (vector? v)
+      (->> v
+           (map #(->css-value % (assoc opts :inside-vec? true)))
+           (str/join (if (:inside-vec? opts) " " ",")))
 
-    ;; Keyword will be convert to css variable.
-    (keyword? v)
-    (let [s (symbol (name v))
-          cssvar (format "var(--%s)" s)
-          pair [v s]]
-      (swap! vars* conj pair)
-      cssvar)
+      ;; Keyword will be convert to css variable.
+      (keyword? v)
+      (let [s (symbol (name v))
+            cssvar (format "var(--%s)" s)
+            pair [v s]]
+        (swap! vars* conj pair)
+        cssvar)
 
-    ;; Refer to a custom valiable or keyframes
-    (symbol? v)
-    (let [{:keys [meta] :as r} (aa/resolve (:env opts) v)
-          #:mcss{:keys [type]} meta]
-      (case type
-        :keyframes
-        (->sanitize-symbol-name v opts)
+      ;; Refer to a custom valiable or keyframes
+      (symbol? v)
+      (let [{:keys [meta] :as r} (aa/resolve (:env opts) v)
+            #:mcss{:keys [type]} meta]
+        (case type
+          :keyframes
+          (do
+            (swap! replaces* conj v)
+            "%s")
 
-        :custom
-        (format "var(--%s)" (->sanitize-symbol-name v opts))
+          :custom
+          (do
+            (swap! replaces* conj v)
+            "var(%s)")
 
-        :static-component
-        (invalid-component-position-error v)
+          :static-component
+          (invalid-component-position-error v)
 
-        :dynamic-component
-        (invalid-component-position-error v)
+          :dynamic-component
+          (invalid-component-position-error v)
 
-        ;; Other symbol will be considered as function.
-        (invalid-symbol-error v)))
+          ;; Other symbol will be considered as function.
+          (invalid-symbol-error v)))
 
-    ;; Function or symbol(refer to function) used to extract data
-    (and (seq? v) (#{'fn 'fn*} (first v)))
-    (let [s (or (get @vars* v) (gensym "cssvar__"))
-          cssvar (format "var(--%s)" s)
-          pair [v s]]
-      (swap! vars* conj pair)
-      cssvar)
+      ;; Function or symbol(refer to function) used to extract data
+      (and (seq? v) (#{'fn 'fn*} (first v)))
+      (let [s (or (get @vars* v) (gensym "cssvar__"))
+            cssvar (format "var(--%s)" s)
+            pair [v s]]
+        (swap! vars* conj pair)
+        cssvar)
 
-    ;; Map will rewrite to a css function call.
-    (map? v)
-    (let [first-v (second (first v))
-          args (if (vector? first-v)
-                 first-v
-                 [first-v])
-          f (ffirst v)]
-      (format "%s(%s)" (name f) (->> args
-                                     (map #(->css-value % vars* opts))
-                                     (str/join ","))))
+      ;; Map will rewrite to a css function call.
+      (map? v)
+      (let [first-v (second (first v))
+            args (if (vector? first-v)
+                   first-v
+                   [first-v])
+            f (ffirst v)]
+        (format "%s(%s)"
+                (name f)
+                (->> args
+                     (map #(->css-value % opts))
+                     (str/join ","))))
 
-    :else
-    (invalid-property-value-error v)))
+      :else
+      (invalid-property-value-error v))))
 
 (defn- ->css-media [media]
   (->> (for [[k v] media]
@@ -139,8 +131,8 @@
            :max-device-width (format "(%s:%s)" (name k) (name v))))
        (str/join " and ")))
 
-(defn- ->css-stmt [p v vars* opts]
-  (format "%s:%s;" (->css-property p opts) (->css-value v vars* opts)))
+(defn- ->css-stmt [p v opts]
+  (format "%s:%s;" (->css-property p opts) (->css-value v opts)))
 
 
 
@@ -162,8 +154,8 @@
         :else s1))
 
 (defn- compile-source
-  [{:keys [selector body media-key]} vars* opts]
-  (let [css-stmts (map (fn [[k v]] (->css-stmt k v vars* opts)) body)
+  [{:keys [selector body media-key]} opts]
+  (let [css-stmts (map (fn [[k v]] (->css-stmt k v opts)) body)
         css-sel (->css-selector selector)
         media (get default-media media-key)]
     (if media
@@ -230,16 +222,14 @@
   "Compile Clojure style, return CSS string and a mapping of CSS variables."
   [cls style opts]
   (let [base  (build-style-input (str "." cls) style)
-        vars* (atom {})
         css   (->> [base]
                    (mapcat expand-combinators)
                    (mapcat expand-media)
                    (mapcat expand-pseudo)
                    (map convert-question-mark)
                    (map convert-vendors)
-                   (map #(compile-source % vars* opts)))]
-    [(str/join "\n" css)
-     @vars*]))
+                   (map #(compile-source % opts)))]
+    (apply str css)))
 
 (defn- compile-rule
   "Compile a single Clojure style, return CSS string."
@@ -253,37 +243,58 @@
                :vendors     (merge default-vendors vendors)
                :combinators combinators
                :selector    sel}
-        vars* (atom {})
         css   (->> [base]
                    (mapcat expand-combinators)
                    (mapcat expand-media)
                    (mapcat expand-pseudo)
                    (map convert-vendors)
-                   (map #(compile-source % vars* opts)))]
-    (str/join "\n" css)))
+                   (map #(compile-source % opts)))]
+    (apply str css)))
 
 (defn- compile-keyframes
   "Compile Clojure keyframe style, return CSS string.
   CSS variable are not supported here."
   [kf keyframes opts]
-  (let [base-list (for [[k style] keyframes]
+  (let [{:keys [replaces*]} opts
+        base-list (for [[k style] keyframes]
                     {:body style :vendors default-vendors :selector (name k)})
         css       (->> base-list
                        (map convert-vendors)
-                       (map #(compile-source % (atom {}) opts)))
+                       (map #(compile-source % opts))
+                       vec)
 
         kf-vendors (get default-vendors :keyframes)]
+    ;; TODO simplify code
+    (swap! replaces*
+           (fn [v]
+             (vec (mapcat (constantly v)
+                          (range (inc (count kf-vendors)))))))
     (apply str
            (format "@keyframes %s{%s}" kf (apply str css))
            (map #(format "@-%s-keyframes %s{%s}" (name %) kf (apply str css))
-                kf-vendors))))
+                  kf-vendors))))
 
 
 
 ;;; Output Generator
 
-(defn- gen-dynamic-component [c cls css new-tag vars atomics]
-  (let [props-sym (gensym "props__")
+(defn- gen-protect-fn-from-dce [fname]
+  `(do (defn ~fname []
+         (set! mcss.rt/counter (inc mcss.rt/counter)))))
+
+(defn- sym->fname [sym]
+  (symbol (str "--mcss-" (name sym))))
+
+(defn- gen-fname->css-cls [fname]
+  `(if goog.DEBUG
+     (str/replace (.-name ^js ~fname) #"\$" "_")
+     (.-name ^js ~fname)))
+
+(defn- gen-dynamic-component [c tag css atomics opts]
+  (let [fname (sym->fname c)
+        replaces @(:replaces* opts)
+        vars @(:vars* opts)
+        props-sym (gensym "props__")
         css-sym (gensym "css__")
         bind-vec  (->> vars
                        (mapcat (fn [[expr v]]
@@ -302,35 +313,60 @@
                    (map (fn [[_expr v]] [(str "--" v) v]))
                    (into {}))]
     `(do
-       (mcss.rt/inject-style! ~cls ~css)
-       (defn ~(with-meta c {:mcss/type :dynamic-component})
-         [~props-sym & children#]
-         (let ~bind-vec
-           (into [~new-tag (merge (dissoc ~props-sym :css)
-                                  {:style ~style})]
-                 children#)))
-       ~@(for [a atomics]
-           `(~a)))))
+       ~(gen-protect-fn-from-dce fname)
+       (let [cls# ~(gen-fname->css-cls fname)
+             addon-cls# (->> (map #(str "." (%)) ~atomics)
+                             (apply str))
+             tag# (keyword (str ~(name tag) "." cls# addon-cls#))]
+         (mcss.rt/reg-style cls# ~css ~replaces ~fname)
+         (defn ~(with-meta c {:mcss/type :dynamic-component})
+           [~props-sym & children#]
+           (let ~bind-vec
+             (into [tag# (merge (dissoc ~props-sym :css)
+                                {:style ~style})]
+                   children#)))))))
 
-(defn- gen-static-component [c cls css new-tag atomics]
-  `(do
-     (mcss.rt/inject-style! ~cls ~css)
-     (def ~(with-meta c {:mcss/type :static-component}) ~new-tag)
-     ~@(for [a atomics]
-         `(~a))))
+(defn- gen-static-component [c tag css atomics opts]
+  (let [fname (sym->fname c)
+        replaces @(:replaces* opts)]
+    `(do
+       ~(gen-protect-fn-from-dce fname)
+       (let [cls# ~(gen-fname->css-cls fname)
+             addon-cls# (->> (map #(str "." (%)) ~atomics)
+                             (apply str))]
+         (def ~(with-meta c {:mcss/type :static-component})
+           (keyword (str ~(name tag) "." cls# addon-cls#)))
+         (mcss.rt/reg-style cls# ~css ~replaces ~fname)))))
 
-(defn- gen-keyframes [sym kf css]
-  `(do (mcss.rt/inject-style! ~kf ~css)
-       (def ~(with-meta sym {:mcss/type :keyframes}) nil)))
+(defn- gen-keyframes [sym css opts]
+  (let [fname (sym->fname sym)
+        replaces @(:replaces* opts)]
+    `(do
+       ~(gen-protect-fn-from-dce fname)
+       (defn ~(with-meta sym {:mcss/type :keyframes}) []
+         (let [kf# ~(gen-fname->css-cls fname)]
+           (mcss.rt/reg-style kf# ~css ~replaces ~fname)
+           kf#)))))
 
-(defn- gen-custom [sym name css]
-  `(do (mcss.rt/inject-custom! ~name ~css)
-       (def ~(with-meta sym {:mcss/type :custom}) nil)))
+(defn- gen-custom [sym css opts]
+  (let [fname (sym->fname sym)
+        replaces @(:replaces* opts)]
+    `(do
+       ~(gen-protect-fn-from-dce fname)
+       (defn ~(with-meta sym {:mcss/type :custom}) []
+         (let [pname# ~(gen-fname->css-cls fname)]
+           (mcss.rt/reg-custom pname# ~css ~replaces ~fname)
+           (str "--" pname#))))))
 
-(defn- gen-style [sym sel css]
-  `(defn ~sym []
-     (mcss.rt/inject-style! ~sel ~css)
-     ~sel))
+(defn- gen-style [sym css opts]
+  (let [fname (sym->fname sym)
+        replaces @(:replaces* opts)]
+    `(do
+       ~(gen-protect-fn-from-dce fname)
+       (defn ~sym []
+         (let [cls# ~(gen-fname->css-cls fname)]
+           (mcss.rt/reg-style cls# ~css ~replaces ~fname)
+           cls#)))))
 
 
 
@@ -340,47 +376,54 @@
   "Define a styled hiccup component. "
   {:arglists '[(component tag atomics style)]}
   [& args]
-  (let [opts         {:env (or &env {})}
+  (let [opts {:env       (or &env {})
+              :vars*     (atom {})
+              :replaces* (atom [])}
 
-        {:keys [c tag atomics style] :as x}
+        {:keys [c tag atomics style]}
         (s/conform ::specs/defstyled args)
 
-        style        (or style {})
-        nname        (str *ns*)
-        cls          (str/replace (str nname "_" c) #"\." "-")
-        [css vars]   (compile-css cls style opts)
-        add-cls-list (map #(str "." (->sanitize-symbol-name % opts)) atomics)
-        new-tag      (keyword
-                      (str (name tag) "." cls
-                                   (if (seq add-cls-list)
-                                     (str/join "." add-cls-list)
-                                     "")))]
-    (if (seq vars)
+        style (or style {})
+        cls   "$$"
+        css   (compile-css cls style opts)]
+    (if (seq @(:vars* opts))
       ;; Dynamic
-      (gen-dynamic-component c cls css new-tag vars atomics)
+      (gen-dynamic-component c tag css atomics opts)
       ;; Static
-      (gen-static-component c cls css new-tag atomics))))
+      (gen-static-component c tag css atomics opts))))
 
 (defmacro defkeyframes
   "Define a keyframes."
   [sym & frames]
-  (let [opts {:env &env}
-        kf (->sanitize-symbol-name sym opts)
+  (let [opts {:env       (or &env {})
+              :vars*     (atom {})
+              :replaces* (atom [])}
+        kf "$$"
         css (compile-keyframes kf frames opts)]
-    (gen-keyframes sym kf css)))
+    (gen-keyframes sym css opts)))
 
 (defmacro defcustom
   "Define a custom variable."
   [sym value]
-  (let [opts {:env &env}
-        name (str "--" (->sanitize-symbol-name sym opts))
-        css-val (->css-value value (atom {}) opts)]
-    (gen-custom sym name (format "%s:%s;" name css-val))))
+  (let [opts {:env       (or &env {})
+              :vars*     (atom {})
+              :replaces* (atom [])}
+        name "$$"
+        css-val (->css-value value opts)
+        css (format "--%s:%s;" name css-val)]
+    (gen-custom sym css opts)))
 
 (defmacro defrule
   "Define a simple class based style."
   [sym style]
-  (let [opts {:env &env}
-        sel (str "." (->sanitize-symbol-name sym opts))
+  (let [opts {:env       (or &env {})
+              :vars*     (atom {})
+              :replaces* (atom [])}
+        sel ".$$"
         css (compile-rule sel style opts)]
-    (gen-style sym sel css)))
+    (gen-style sym css opts)))
+
+(comment
+  (macroexpand
+   `(defstyled Static :div
+      {:color "red"})))

@@ -7,7 +7,9 @@ WIP
 # Target
 - Design to use with hiccup style library, e.g. reagent.
 - Seamless dynamic style supported by CSS variables.
-- Generating CSS by macro, nearly zero runtime cost.
+- Generating CSS by macro, as less runtime as possible.
+- Shorten CSS names in production build.
+- Use dead code elimination to remove unused atomic styles.
 
 # Usage
 ## Basic Setup
@@ -145,6 +147,17 @@ Use it like this:
   {:animation [[my-kf "2s" "infinite" "alternate"]]})
 ```
 
+## Combinators support.
+
+Use strings for sub selectors.
+
+```clojure
+(defstyled my-div :div
+  ^{:combinators {"> div" {:color "red"}
+                  "~ div" {:color "blue"}}}
+  {})
+```
+
 ## Pseudo support.
 
 ```clojure
@@ -172,6 +185,7 @@ Provide your own `mcss/defaults.clj` to overwrite default vendors settings.
 Provide your own `mcss/defaults.clj` to overwrite default media query defines.
 
 # Roadmap
+- Exploring what is good.
 - Add macro validation via spec.
 - Add built-in atomic styles.
 
