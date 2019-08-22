@@ -2,7 +2,7 @@
   (:require [reagent.core :as reagent]
             [demo.some-defs :as d :refer [o c r10]]
             [mcss.core :as mcss :refer
-             [defrule defstyled defkeyframes defcustom load-styles!]]))
+             [defa defstyled defkeyframes defcustom load-styles!]]))
 
 (defcustom ft ["Consolas" "Input Mono" "DejaVu Sans Mono"])
 (defcustom bd-1 [["thin" "solid" "#99ff99"]])
@@ -11,22 +11,24 @@
 (defcustom p80 "80%")
 (defcustom useless "99%")
 
-(defrule h100
+(defa h100
   {:height "100vh"})
 
-(defrule w100
+(defa w100
   {:width "100vw"})
 
 (defkeyframes ft-pulse99
   [:from {:color "#999999"}]
   [:to {:color "#999999"}])
 
-(defrule w99
+(defa w99
   {:width "99vw"})
+
+(defcustom max-rotate "360deg")
 
 (defkeyframes ft-pulse
   [:from {:transform {:rotate "0deg"}}]
-  [:to   {:transform {:rotate "360deg"}}])
+  [:to   {:transform {:rotate max-rotate}}])
 
 (defstyled Root :div
   [h100 w100]
@@ -50,6 +52,7 @@
    :width            "90%"
    :height           "90%"
    :box-sizing       "border-box"
+   max-rotate        :rotate
    :animation        [[ft-pulse "2s" "infinite" "alternate"]]
    :background-color {:rgb [:red 128 128]}
    :active? {:font-weight "bold"
@@ -72,5 +75,6 @@
             [Grid {:on-click (nth on-click-fns i)
                    :css {:active? (= i idx)
                          :width "3rem"
+                         :rotate (str i "deg")
                          :red (mod i 255)}}
              (str i)]])]))))

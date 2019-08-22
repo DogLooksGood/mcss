@@ -1,10 +1,10 @@
 (ns demo.combinator-demo
   (:require [mcss.core :as mcss]))
 
-(mcss/defrule red-bg
+(mcss/defa red-bg
   {:background-color {:rgb [0xff 0x99 0x99]}})
 
-(mcss/defrule red-child
+(mcss/defa red-child
   ^{:combinators {"> div" {:color "red"}}}
   {:font-size "8em"})
 

@@ -7,5 +7,5 @@
 
 (mcss/defcustom br "5%")
 
-(mcss/defrule o
+(mcss/defa o
   {:border-radius br})

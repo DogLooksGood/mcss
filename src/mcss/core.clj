@@ -413,7 +413,7 @@
         css (format "--%s:%s;" name css-val)]
     (gen-custom sym css opts)))
 
-(defmacro defrule
+(defmacro defa
   "Define a simple class based style."
   [sym style]
   (let [opts {:env       (or &env {})
@@ -422,8 +422,3 @@
         sel ".$$"
         css (compile-rule sel style opts)]
     (gen-style sym css opts)))
-
-(comment
-  (macroexpand
-   `(defstyled Static :div
-      {:color "red"})))
