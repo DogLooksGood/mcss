@@ -28,7 +28,7 @@
 
 (defkeyframes ft-pulse
   [:from {:transform {:rotate "0deg"}}]
-  [:to   {:transform {:rotate (max-rotate)}}])
+  [:to {:transform {:rotate (max-rotate)}}])
 
 (defstyled Root :div
   [h100 w100]
@@ -48,22 +48,22 @@
 (defstyled Grid :div
   [d/o d/c d/r10]
   ^{:media  {:medium {:border (bd-2)}}
-    :pseudo {:hover {:border (bd-act)
-                     :border-color {:rgb [#(- 255 (:red %)) 30 30]}}}}
+    :pseudo {:hover {:border       (bd-act)
+                     :border-color {:rgb [30 30 #(- 255 (:red %))]}}}}
   {:border           (bd-1)
    :width            "90%"
    :height           "90%"
    :box-sizing       "border-box"
    max-rotate        :rotate
    :animation        [[ft-pulse "2s" "infinite" "alternate"]]
-   :background-color {:rgb [:red 128 128]}
-   :bo?          {:font-weight "bold"
-                  :color       "white"
-                  :font-size   (bg-ft)}})
+   :background-color {:rgb [128 128 :red]}
+   :bo?              {:font-weight "bold"
+                      :color       "white"
+                      :font-size   (bg-ft)}})
 
 (defn root []
-  (let [active* (reagent/atom nil)
-        nums (range 1000)
+  (let [active*      (reagent/atom nil)
+        nums         (range 1000)
         on-click-fns (map (fn [i] #(reset! active* i)) nums)]
     (fn []
       (let [idx @active*]
@@ -72,8 +72,8 @@
            ^{:key i}
            [GridBox {:css {:size "3rem"}}
             [Grid {:on-click (nth on-click-fns i)
-                   :css {:bo? (= i idx)
-                         :width "3rem"
-                         :rotate (str i "deg")
-                         :red (mod i 255)}}
+                   :css      {:bo?    (= i idx)
+                              :width  "3rem"
+                              :rotate (str i "deg")
+                              :red    (mod i 255)}}
              (str i)]])]))))

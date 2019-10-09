@@ -1,31 +1,31 @@
 (ns demo.some-defs
   (:require [mcss.core :as mcss :refer
-             [defrule defstyled defkeyframes defcustom]]))
+             [defa defstyled defkeyframes defcustom]]))
 
 (defcustom r "8deg")
 
-(defrule o
+(defa o
   {:border-raidus "50%"})
 
-(defrule r10
+(defa r10
   {:transform {:rotate "10deg"}})
 
-(defrule r20
+(defa r20
   {:transform {:rotate "20deg"}})
 
-(defrule r30
+(defa r30
   {:transform {:rotate "30deg"}})
 
-(defrule r40
+(defa r40
   {:transform {:rotate "40deg"}})
 
-(defrule r50
+(defa r50
   {:transform {:rotate "50deg"}})
 
-(defrule r60
+(defa r60
   {:transform {:rotate "60deg"}})
 
-(defrule c
+(defa c
   {:display         "flex"
    :justify-content "center"
    :align-items     "center"})

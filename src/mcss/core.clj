@@ -88,16 +88,11 @@
 
       ;; Map will rewrite to a css function call.
       (map? v)
-      (let [first-v (second (first v))
-            args (if (vector? first-v)
-                   first-v
-                   [first-v])
-            f (ffirst v)]
-        (format "%s(%s)"
-                (name f)
-                (->> args
-                     (map #(->css-value % opts))
-                     (str/join ","))))
+      (let [e (first v)]
+        (format "%s(%s)" (name (key e)) (->css-value (val e)
+                                                     (assoc opts
+                                                            :inside-vec?
+                                                            false))))
 
       (and (list? v) (symbol? (first v)))
       (do
@@ -267,7 +262,7 @@
     (apply str
            (format "@keyframes %s{%s}" kf (apply str css))
            (map #(format "@-%s-keyframes %s{%s}" (name %) kf (apply str css))
-                  kf-vendors))))
+                kf-vendors))))
 
 
 
@@ -275,13 +270,14 @@
 
 (defn- gen-protect-fn-from-dce [fname]
   `(do (defn- ~fname []
+         (println "run protect  function" ~(str fname))
          (set! mcss.rt/counter (inc mcss.rt/counter)))))
 
 (defn- sym->fname [sym]
-  (symbol (str "--mcss-" (name sym))))
+  (symbol (str "-" (name sym))))
 
 (defn- gen-fname->css-cls [fname]
-  `(str/replace (.-name ^js ~fname) #"[^A-Za-z0-9-_]" "_"))
+  `(str/replace (.-name ^js ~fname) #"\$" "-_"))
 
 (defn- gen-dynamic-component [c tag css atomics opts]
   (let [fname (sym->fname c)
@@ -314,7 +310,7 @@
                              (apply str))
              tag# (keyword (str ~(name tag) "." ~cls-sym addon-cls#))]
          (mcss.rt/reg-style ~cls-sym ~css ~replaces ~fname)
-         (defn ~(with-meta c {:mcss/type :dynamic-component})
+         (defn ~c
            [~props-sym & children#]
            (let ~bind-vec
              (let [class# (if ~(boolean (seq toggles))
@@ -328,7 +324,7 @@
                             `[])]
                (if (map? ~props-sym)
                  (into [tag# (merge (dissoc ~props-sym :css)
-                                    {:style ~style
+                                    {:style (merge ~style (:style ~props-sym))
                                      :class class#})]
                        children#)
                  (into [tag# {:class class#} ~props-sym] children#)))))))))
@@ -341,7 +337,7 @@
        (let [cls# ~(gen-fname->css-cls fname)
              addon-cls# (->> (map #(str "." (%)) ~atomics)
                              (apply str))]
-         (def ~(with-meta c {:mcss/type :static-component})
+         (def ~c
            (keyword (str ~(name tag) "." cls# addon-cls#)))
          (mcss.rt/reg-style cls# ~css ~replaces ~fname)))))
 
@@ -350,7 +346,7 @@
         replaces @(:replaces* opts)]
     `(do
        ~(gen-protect-fn-from-dce fname)
-       (defn ~(with-meta sym {:mcss/type :keyframes}) []
+       (defn ~sym []
          (let [kf# ~(gen-fname->css-cls fname)]
            (mcss.rt/reg-style kf# ~css ~replaces ~fname)
            kf#)))))
@@ -360,7 +356,7 @@
         replaces @(:replaces* opts)]
     `(do
        ~(gen-protect-fn-from-dce fname)
-       (defn ~(with-meta sym {:mcss/type :custom}) []
+       (defn ~sym []
          (let [pname# ~(gen-fname->css-cls fname)]
            (mcss.rt/reg-custom pname# ~css ~replaces ~fname)
            (str "--" pname#))))))
@@ -392,7 +388,7 @@
         (s/conform ::specs/defstyled args)
 
         style (or style {})
-        cls   "$$"
+        cls   "{{}}"
         css   (compile-css cls style opts)]
     (if (or (seq @(:toggles* opts)) (seq @(:vars* opts)))
       ;; Dynamic
@@ -406,7 +402,7 @@
   (let [opts {:env       (or &env {})
               :vars*     (atom {})
               :replaces* (atom [])}
-        kf "$$"
+        kf "{{}}"
         css (compile-keyframes kf frames opts)]
     (gen-keyframes sym css opts)))
 
@@ -416,7 +412,7 @@
   (let [opts {:env       (or &env {})
               :vars*     (atom {})
               :replaces* (atom [])}
-        name "$$"
+        name "{{}}"
         css-val (->css-value value opts)
         css (format "--%s:%s;" name css-val)]
     (gen-custom sym css opts)))
@@ -427,6 +423,6 @@
   (let [opts {:env       (or &env {})
               :vars*     (atom {})
               :replaces* (atom [])}
-        sel ".$$"
+        sel ".{{}}"
         css (compile-rule sel style opts)]
     (gen-style sym css opts)))
