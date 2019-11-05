@@ -23,7 +23,6 @@
 (defn reg-style
   [cls css args protect-fn]
   (when (or goog.DEBUG (not (gobj/get styles cls)))
-    (println cls css (.-name ^js protect-fn))
     (protect-fn)
     (gobj/set styles cls (format-css cls css args))))
 

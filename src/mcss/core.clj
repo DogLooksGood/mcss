@@ -270,7 +270,6 @@
 
 (defn- gen-protect-fn-from-dce [fname]
   `(do (defn- ~fname []
-         (println "run protect  function" ~(str fname))
          (set! mcss.rt/counter (inc mcss.rt/counter)))))
 
 (defn- sym->fname [sym]
