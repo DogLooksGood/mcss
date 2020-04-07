@@ -1,7 +1,7 @@
 # MCSS
 > Macro your CSS in ClojureScript.
 
-![Logo](mcss.svg)
+![Logo](mcss.png)
 
 # Status?
 WIP
